@@ -234,7 +234,7 @@ function App() {
         </>
       )}
 
-      {screen === 'arcade' && <TicTacToe onBack={() => go('home')} />}
+      {screen === 'arcade' && <TicTacToe onBack={() => go('home')} quality={prefs.quality} />}
 
       {screen === 'garage' && (
         <section className="secondary-page garage-page">

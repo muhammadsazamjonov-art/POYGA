@@ -8,12 +8,19 @@ async function openArcade(page: import('@playwright/test').Page) {
 
 const cell = (page: import('@playwright/test').Page, index: number) => page.getByRole('button', { name: new RegExp(`^Square ${index + 1}\\b`) });
 
+/** The 3D board uses real clicking; it needs a WebGL canvas, so wait for the overlay to replace the flat grid. */
+async function expect3dBoard(page: import('@playwright/test').Page) {
+  await expect(page.locator('.ttt-board')).toHaveAttribute('data-scene', /3d|flat/);
+  await expect(page.locator('.ttt-board[data-scene="3d"] .ttt-scene canvas')).toBeVisible();
+}
+
 test('arcade is reachable from the hub and starts with an empty board', async ({ page }) => {
   await page.goto('/');
   await expect(page.getByRole('button', { name: 'ARCADE', exact: true })).toBeVisible();
   await page.getByRole('button', { name: /PLAY 3 IN A ROW/ }).click();
   await expect(page.getByRole('heading', { name: /THREE IN A ROW/ })).toBeVisible();
   await expect(page.locator('.ttt-cell')).toHaveCount(9);
+  await expect3dBoard(page);
   await expect(page.locator('.ttt-cell[disabled]')).toHaveCount(0);
   await expect(page.locator('.ttt-status')).toContainText('YOUR MOVE');
   for (let index = 0; index < 9; index++) {
@@ -45,9 +52,10 @@ test('a completed line is announced, scored locally and can be replayed', async 
   for (const index of [0, 3, 1, 4, 2]) await cell(page, index).click();
 
   await expect(page.locator('.ttt-status')).toContainText('TAKES THE ROUND');
-  await expect(page.locator('.ttt-strike')).toBeVisible();
   await expect(page.locator('.ttt-cell.is-winning')).toHaveCount(3);
   await expect(page.locator('.ttt-cell[disabled]')).toHaveCount(9);
+  // The winning line is drawn inside the WebGL scene, not as a DOM overlay.
+  await expect(page.locator('.ttt-board .ttt-strike')).toHaveCount(0);
 
   await page.getByRole('button', { name: /PLAY AGAIN/ }).click();
   await expect(page.locator('.ttt-cell[disabled]')).toHaveCount(0);
@@ -58,7 +66,7 @@ test('scores persist across a reload and R restarts the board', async ({ page })
   await openArcade(page);
   await page.getByRole('button', { name: '2 PLAYERS' }).click();
   for (const index of [0, 3, 1, 4, 2]) await cell(page, index).click();
-  await expect(page.locator('.ttt-strike')).toBeVisible();
+  await expect(page.locator('.ttt-status')).toContainText('TAKES THE ROUND');
 
   await page.reload();
   await page.getByRole('button', { name: 'ARCADE', exact: true }).click();
@@ -80,4 +88,23 @@ test('the arcade fits a phone without sideways scrolling', async ({ page }) => {
   await expect(page.getByRole('button', { name: 'CPU' })).toBeVisible();
   await cell(page, 4).click();
   await expect(page.locator('.ttt-cell.is-o')).toHaveCount(1, { timeout: 5_000 });
+});
+
+test('the flat board takes over when WebGL cannot start', async ({ page }) => {
+  await page.addInitScript(() => {
+    // Break WebGL before the app boots so the scene constructor fails.
+    const original = HTMLCanvasElement.prototype.getContext;
+    HTMLCanvasElement.prototype.getContext = function getContext(this: HTMLCanvasElement, type: string, ...rest: unknown[]) {
+      if (type.includes('webgl')) return null;
+      return (original as unknown as (t: string, ...r: unknown[]) => unknown).call(this, type, ...rest);
+    } as typeof HTMLCanvasElement.prototype.getContext;
+  });
+  await page.goto('/');
+  await page.getByRole('button', { name: 'ARCADE', exact: true }).click();
+  await expect(page.locator('.ttt-board')).toHaveAttribute('data-scene', 'flat');
+  await expect(page.locator('.ttt-cell')).toHaveCount(9);
+  await page.getByRole('button', { name: '2 PLAYERS' }).click();
+  for (const index of [0, 3, 1, 4, 2]) await cell(page, index).click();
+  await expect(page.locator('.ttt-board .ttt-strike')).toBeVisible();
+  await expect(page.locator('.ttt-status')).toContainText('TAKES THE ROUND');
 });

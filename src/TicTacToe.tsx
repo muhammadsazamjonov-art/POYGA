@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, Bot, RotateCcw, Trophy, Users } from 'lucide-react';
+import { ArrowLeft, Bot, Box, RotateCcw, Trophy, Users } from 'lucide-react';
+import type { ArcadeScene, CellRect } from './game/arcadeScene';
 
 type Cell = 'X' | 'O' | null;
 type Difficulty = 'easy' | 'normal' | 'impossible';
@@ -78,26 +79,19 @@ function chooseMove(board: Cell[], mark: 'X' | 'O', difficulty: Difficulty) {
   return best;
 }
 
-function Strike({ line, mark }: { line: readonly number[]; mark: 'X' | 'O' }) {
-  const [start, end] = [line[0], line[2]];
-  const angle = start === 0 && end === 2 ? 0 : start === 2 && end === 6 ? 90 : start === 0 && end === 8 ? 45 : -45;
-  return (
-    <span
-      className={`ttt-strike ${mark === 'O' ? 'is-o' : ''}`}
-      style={{ transform: `translate(-50%, -50%) rotate(${angle}deg)` }}
-      aria-hidden="true"
-    />
-  );
-}
-
-export function TicTacToe({ onBack }: { onBack: () => void }) {
+export function TicTacToe({ onBack, quality = 'high' }: { onBack: () => void; quality?: 'high' | 'low' }) {
   const [board, setBoard] = useState<Cell[]>(() => Array<Cell>(9).fill(null));
   const [human] = useState<'X' | 'O'>('X');
   const [mode, setMode] = useState<Mode>('cpu');
   const [difficulty, setDifficulty] = useState<Difficulty>('normal');
   const [scores, setScores] = useState<Scores>(readScores);
   const [rounds, setRounds] = useState(0);
+  const [hovered, setHovered] = useState<number | null>(null);
+  const [rects, setRects] = useState<CellRect[] | null>(null);
+  const [sceneMode, setSceneMode] = useState<'3d' | 'flat'>('3d');
   const settled = useRef(false);
+  const sceneRef = useRef<HTMLDivElement>(null);
+  const sceneApi = useRef<ArcadeScene | null>(null);
   const boardRef = useRef<HTMLDivElement>(null);
   const cpuMark = other(human);
   const result = useMemo(() => winnerOf(board), [board]);
@@ -105,11 +99,15 @@ export function TicTacToe({ onBack }: { onBack: () => void }) {
   const turn = board.filter(Boolean).length % 2 === 0 ? 'X' : 'O';
   const finished = !!result || full;
   const cpuThinking = mode === 'cpu' && !finished && turn === cpuMark;
+  const interactive = !finished && (mode === 'duo' || turn === human);
+  const ghostMark = interactive && hovered !== null && !board[hovered] ? turn : null;
 
   const status = result
-    ? result.mark === human || mode === 'duo'
-      ? `${result.mark === 'O' && mode === 'duo' ? 'O' : result.mark === 'X' && mode === 'duo' ? 'X' : result.mark} TAKES THE ROUND.`
-      : 'THE MACHINE TAKES IT.'
+    ? mode === 'duo'
+      ? `${result.mark} TAKES THE ROUND.`
+      : result.mark === human
+        ? 'YOU TAKE THE ROUND.'
+        : 'THE MACHINE TAKES IT.'
     : full
       ? 'DEAD EVEN. NOBODY BLINKS.'
       : cpuThinking
@@ -141,6 +139,7 @@ export function TicTacToe({ onBack }: { onBack: () => void }) {
     (index: number) => {
       if (board[index] || finished) return;
       if (mode === 'cpu' && turn !== human) return;
+      setHovered(null);
       setBoard(current => {
         if (current[index] || winnerOf(current)) return current;
         const next = [...current];
@@ -154,7 +153,48 @@ export function TicTacToe({ onBack }: { onBack: () => void }) {
   const reset = useCallback(() => {
     settled.current = false;
     setBoard(Array<Cell>(9).fill(null));
+    setHovered(null);
   }, []);
+
+  // Build the WebGL board once; fall back to the flat grid if it cannot start.
+  useEffect(() => {
+    let active = true;
+    let scene: ArcadeScene | null = null;
+    void import('./game/arcadeScene')
+      .then(({ ArcadeScene: Scene }) => {
+        if (!active || !sceneRef.current) return;
+        try {
+          scene = new Scene(sceneRef.current, {
+            quality,
+            onLayout: next => {
+              if (active) setRects(next);
+            },
+          });
+          sceneApi.current = scene;
+          setSceneMode('3d');
+        } catch (cause) {
+          console.warn('3D arcade board unavailable, using the flat board:', cause);
+          if (active) setSceneMode('flat');
+        }
+      })
+      .catch(() => {
+        if (active) setSceneMode('flat');
+      });
+    return () => {
+      active = false;
+      scene?.dispose();
+      sceneApi.current = null;
+    };
+  }, [quality]);
+
+  useEffect(() => {
+    sceneApi.current?.setState({
+      board,
+      winning: result?.line ?? null,
+      ghost: ghostMark,
+      ghostIndex: sceneMode === '3d' ? hovered : null,
+    });
+  }, [board, ghostMark, hovered, result, sceneMode]);
 
   // The CPU answers the human's move once the board has settled.
   useEffect(() => {
@@ -194,7 +234,6 @@ export function TicTacToe({ onBack }: { onBack: () => void }) {
     return () => window.removeEventListener('keydown', onKey);
   }, [finished, reset]);
 
-
   const changeMode = (next: Mode) => {
     setMode(next);
     reset();
@@ -207,7 +246,7 @@ export function TicTacToe({ onBack }: { onBack: () => void }) {
         <div>
           <div className="eyebrow"><i /> THE ARCADE / MINI GAME 01</div>
           <h1>THREE IN<br /><span>A ROW.</span></h1>
-          <p>No engine, no nitro, no excuses. Take three squares before the machine does.</p>
+          <p>No engine, no nitro, no excuses. A neon board in full 3D — take three squares before the machine does.</p>
         </div>
         <div className="ttt-score">
           <div className="ttt-score-head"><Trophy size={15} /> THIS DEVICE</div>
@@ -255,24 +294,35 @@ export function TicTacToe({ onBack }: { onBack: () => void }) {
           </div>
 
           <div
-            className="ttt-board"
+            className={`ttt-board ${sceneMode === '3d' && rects ? 'is-3d' : 'is-flat'}`}
             ref={boardRef}
             role="group"
             aria-label="Tic tac toe board"
             tabIndex={-1}
+            data-scene={sceneMode === '3d' ? '3d' : 'flat'}
+            data-win={result ? 'true' : 'false'}
           >
-            {board.map((cell, index) => (
-              <button
-                key={index}
-                className={`ttt-cell ${cell ? `is-${cell.toLowerCase()}` : ''} ${result?.line.some(square => square === index) ? 'is-winning' : ''}`}
-                aria-label={`Square ${index + 1}${cell ? `, ${cell}` : ', empty'}`}
-                disabled={!!cell || finished || (mode === 'cpu' && turn !== human)}
-                onClick={() => play(index)}
-              >
-                <span className={cell ? 'ttt-mark' : 'ttt-mark ttt-mark-ghost'} aria-hidden="true">{cell ?? (mode === 'cpu' ? human : turn)}</span>
-              </button>
-            ))}
-            {result && <Strike line={result.line} mark={result.mark} />}
+            <div className="ttt-scene" ref={sceneRef} aria-hidden="true" />
+            <div className="ttt-cells">
+              {board.map((cell, index) => (
+                <button
+                  key={index}
+                  className={`ttt-cell ${cell ? `is-${cell.toLowerCase()}` : ''} ${result?.line.some(square => square === index) ? 'is-winning' : ''}`}
+                  style={sceneMode === '3d' && rects ? { left: rects[index].left, top: rects[index].top, width: rects[index].width, height: rects[index].height } : undefined}
+                  aria-label={`Square ${index + 1}${cell ? `, ${cell}` : ', empty'}`}
+                  disabled={!!cell || finished || (mode === 'cpu' && turn !== human)}
+                  onClick={() => play(index)}
+                  onPointerEnter={() => { if (!cell && !finished) setHovered(index); }}
+                  onPointerLeave={() => setHovered(current => (current === index ? null : current))}
+                  onFocus={() => { if (!cell && !finished) setHovered(index); }}
+                  onBlur={() => setHovered(current => (current === index ? null : current))}
+                >
+                  <span className={cell ? 'ttt-mark' : 'ttt-mark ttt-mark-ghost'} aria-hidden="true">{cell ?? (mode === 'cpu' ? human : turn)}</span>
+                </button>
+              ))}
+            </div>
+            {result && sceneMode !== '3d' && <span className={`ttt-strike ${result.mark === 'O' ? 'is-o' : ''}`} aria-hidden="true" />}
+            {sceneMode === '3d' && rects && <span className="ttt-3d-badge"><Box size={11} /> 3D BOARD</span>}
           </div>
 
           <div className="ttt-legend">

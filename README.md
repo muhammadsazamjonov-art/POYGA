@@ -30,11 +30,11 @@ npm run preview
 - Graze a car within a whisker for a **+150** near-miss bonus; touch it and the run ends.
 - Open **Settings** to set your driver name, switch between High/Low render quality (High adds neon bloom) and toggle camera shake.
 - **Records** shows the personal best, lifetime runs, top speed, distance, plus the last five runs stored on this device.
-- **Arcade** is a neon three-in-a-row game: play the CPU on Easy, Normal or Impossible (perfect minimax), or pass the keyboard around in two-player mode. Wins, losses and draws persist.
+- **Arcade** is a neon three-in-a-row game with a real 3D board: glossy slab, floating X/O tokens and a WebGL winning line. Play the CPU on Easy, Normal or Impossible (perfect minimax), or pass the keyboard around in two-player mode. Wins, losses and draws persist.
 
 ## Tic-tac-toe (Arcade)
 
-The mini game lives in `src/TicTacToe.tsx` and is reachable from the header (`ARCADE`), the hero button and the setup strip. The CPU uses full minimax with depth preference, so **Impossible** never loses; **Normal** deliberately passes 30% of the time and **Easy** mostly plays at random while still blocking obvious wins. Scores are stored under `redline-tictactoe-v1`. Keyboard shortcuts: **R** restarts a round, **Enter** starts the next one from the result state.
+The mini game lives in `src/TicTacToe.tsx` (rules, CPU, scoreboard, accessible button grid) with the 3D presentation in `src/game/arcadeScene.ts`. It is reachable from the header (`ARCADE`), the hero button and the setup strip. The board renders in WebGL and the nine squares are transparent DOM buttons projected onto the 3D cells, so keyboard and screen-reader play still works; if WebGL is unavailable the layout falls back to the flat grid automatically. The CPU uses full minimax with depth preference, so **Impossible** never loses; **Normal** deliberately passes 30% of the time and **Easy** mostly plays at random while still blocking obvious wins. Scores are stored under `redline-tictactoe-v1`. Keyboard shortcuts: **R** restarts a round, **Enter** starts the next one from the result state.
 
 Storage keys: `redline-best-v1` (best score), `redline-prefs-v1` (driver name, quality, shake), `redline-stats-v1` (lifetime stats and recent runs). Nothing is uploaded.
 
@@ -44,6 +44,7 @@ Storage keys: `redline-best-v1` (best score), `redline-prefs-v1` (driver name, q
 src/
   main.tsx            hub, garage, records, arcade routing, settings, how-to-drive
   TicTacToe.tsx       three-in-a-row with minimax CPU and local scoreboard
+  game/arcadeScene.ts Three.js board for the arcade: slab, tokens, win line, sparks
   game/Race.tsx       full-screen race shell, HUD, keyboard + touch input, pause/results
   game/racer.ts       Three.js scene: car, road, city, traffic, bloom, fixed-step simulation
   components/Modal.tsx accessible modal shell (focus trap, Escape to close)
